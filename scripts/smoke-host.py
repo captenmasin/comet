@@ -106,10 +106,7 @@ def check_shutdown(executable, flag):
                                       capture_output=True, text=True, check=True, timeout=8)
             assert json.loads(snapshot.stdout)["running"], "Host identity was not verified"
             print(f"Host group: {os.getpgid(host.pid)}; child group: {os.getpgid(child)}")
-            if flag == "--runner-host-once":
-                subprocess.run([executable, "--runner-stop", temporary], check=True, timeout=20)
-            else:
-                os.killpg(host.pid, signal.SIGINT)
+            subprocess.run([executable, "--runner-stop", temporary], check=True, timeout=20)
             host.wait(timeout=8)
             wait_until(lambda: not alive(child))
             assert "host-started" in (root / "runner.log").read_text()
@@ -136,6 +133,11 @@ def main():
     check_once_exits(executable)
     for flag in ("--runner-host", "--runner-host-once"):
         check_shutdown(executable, flag)
+    # A symlink gives Bundle a stale/different launch path, as moving a running app does.
+    with tempfile.TemporaryDirectory(prefix="runner-helper-alias-test-") as temporary:
+        alias = Path(temporary) / "Comet"
+        alias.symlink_to(executable)
+        check_shutdown(str(alias), "--runner-host")
 
 
 if __name__ == "__main__":

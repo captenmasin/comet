@@ -29,6 +29,7 @@ struct Entry {
                 exit(1)
             }
         }
+        AppLog.start()
         RunnerApp.main()
     }
 }
@@ -39,6 +40,7 @@ struct RunnerApp: App {
     private var store: RunnerStore { delegate.store }
 
     var body: some Scene {
+        @Bindable var delegate = delegate
         Window("Comet", id: "main") {
             MainWindow(store: store)
         }
@@ -49,13 +51,15 @@ struct RunnerApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesButton(updater: store.updates)
+                Button("Show App Logs…") { AppLog.showInFinder() }
+                Button("Show Menu Bar Icon") { delegate.menuBarInserted = true }
             }
             CommandGroup(replacing: .newItem) {
                 Button("Add Runner…") { store.showSetup = true }
                     .keyboardShortcut("n")
             }
         }
-        MenuBarExtra {
+        MenuBarExtra(isInserted: $delegate.menuBarInserted) {
             RunnerPopover(store: store)
         } label: {
             Label { Text("Comet: \(store.menuBarState.rawValue)") } icon: {
@@ -77,6 +81,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var showMainWindowOnLaunch: Bool
     private let defaults: UserDefaults
     private var quitting = false
+    private var heartbeat: Task<Void, Never>?
+    var menuBarInserted = true {
+        didSet {
+            guard menuBarInserted != oldValue else { return }
+            AppLog.record("menu bar inserted=\(menuBarInserted)", error: !menuBarInserted)
+        }
+    }
 
     override convenience init() { self.init(store: RunnerStore()) }
 
@@ -88,6 +99,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppLog.record("did finish launching; menu bar inserted=\(menuBarInserted)")
         for name in [NSWindow.didBecomeMainNotification, NSWindow.willCloseNotification] {
             NotificationCenter.default.addObserver(self, selector: #selector(updateDockPresence(_:)), name: name, object: nil)
         }
@@ -96,6 +108,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         store.loginItem.offerIfNeeded()
         Task { await store.load(); await store.mcp.restore(); store.updates.start() }
+        if AppLog.isStarted {
+            heartbeat = Task { [weak self] in
+                while !Task.isCancelled {
+                    do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                    guard let self else { return }
+                    self.logStatus("heartbeat")
+                }
+            }
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppLog.record("reopen visibleWindows=\(flag); restoring menu bar icon")
+        menuBarInserted = true
+        return true
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) { logStatus("became active") }
+    func applicationDidResignActive(_ notification: Notification) { logStatus("resigned active") }
+    func applicationWillTerminate(_ notification: Notification) {
+        heartbeat?.cancel()
+        logStatus("will terminate (orderly exit)")
+    }
+
+    private func logStatus(_ event: String) {
+        AppLog.record("\(event); menu bar inserted=\(menuBarInserted) policy=\(NSApp.activationPolicy().rawValue) visibleWindows=\(NSApp.windows.filter(\.isVisible).count) operations=\(store.operations.count)")
     }
 
     @objc func updateDockPresence(_ notification: Notification) {
@@ -108,13 +146,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             || NSApp.windows.contains {
                 $0 !== window && !($0 is NSPanel) && $0.canBecomeMain && ($0.isVisible || $0.isMiniaturized)
             }
-        NSApp.setActivationPolicy(hasOpenWindow ? .regular : .accessory)
+        let policy: NSApplication.ActivationPolicy = hasOpenWindow ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        let changed = NSApp.setActivationPolicy(policy)
+        AppLog.record("activation policy=\(policy.rawValue) succeeded=\(changed) window event=\(notification.name.rawValue)", error: !changed)
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        AppLog.record("last window closed; keeping app running")
+        return false
+    }
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard !quitting else { return .terminateNow }
+        logStatus("quit requested")
+        AppLog.record("quit caller: \(Thread.callStackSymbols.prefix(16).joined(separator: " | "))")
+        guard !quitting else { return .terminateLater }
         guard store.canQuit else {
+            AppLog.record("quit refused: runner operation in progress")
             let alert = NSAlert()
             alert.messageText = "Comet is still working"
             alert.informativeText = "Wait for setup or the current runner operation to finish before quitting."
@@ -127,12 +174,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             alert.informativeText = "Quitting stops all managed runners and may interrupt active jobs."
             alert.addButton(withTitle: "Stop Runners and Quit")
             alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+            guard alert.runModal() == .alertFirstButtonReturn else {
+                AppLog.record("quit cancelled by user")
+                return .terminateCancel
+            }
         }
         quitting = true
         Task {
             let stopped = await store.shutdown()
-            if !stopped { quitting = false; store.error = "Some runners could not be stopped. Check their status before quitting." }
+            AppLog.record("quit shutdown completed stopped=\(stopped)", error: !stopped)
+            if !stopped { quitting = false }
             sender.reply(toApplicationShouldTerminate: stopped)
         }
         return .terminateLater
@@ -240,6 +291,20 @@ let runnerAccent = Color(nsColor: NSColor(name: "RunnerAccent") { appearance in
     }
 })
 
+#if DEBUG
+struct DevelopmentBadge: View {
+    var body: some View {
+        Text("Dev")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(runnerAccent)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(runnerAccent.opacity(0.12), in: Capsule())
+            .accessibilityLabel("Development build")
+    }
+}
+#endif
+
 struct StateLabel: View {
     let state: RunnerState
     var body: some View {
@@ -318,6 +383,9 @@ struct RunnerPopover: View {
                     MenuBarStatusIcon(isRunningJob: store.hasRunningJobs, hasFailure: store.hasFailures,
                         successUntil: store.successExpiresAt)
                 }.font(.headline)
+                #if DEBUG
+                DevelopmentBadge()
+                #endif
                 Spacer()
                 Button { showWindow(); store.showSetup = true } label: { Image(systemName: "plus") }
                     .accessibilityLabel("Add Runner").help("Add Runner")
@@ -375,6 +443,7 @@ struct RunnerPopover: View {
                 Menu {
                     Button("Settings…") { dismiss(); openSettings(); NSApplication.shared.activate(ignoringOtherApps: true) }
                     CheckForUpdatesButton(updater: store.updates)
+                    Button("Show App Logs…") { AppLog.showInFinder() }
                     Button("Manage GitHub Token…") { NSWorkspace.shared.open(URL(string: "https://github.com/settings/personal-access-tokens")!) }
                     Divider()
                     Button("Quit Comet") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")

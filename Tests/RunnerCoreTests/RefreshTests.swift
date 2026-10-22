@@ -99,6 +99,45 @@ private func runs(_ count: Int = 1, revision: String = "original", status: Strin
     ] as [String: Any] }]
 }
 
+@Test(arguments: [204, 403]) @MainActor
+func removingARunnerPreservesItsWorkspaceAndRequiresDeregistration(status: Int) async throws {
+    let fixture = RefreshFixture { request in
+        if request.httpMethod == "DELETE" { return try Reply([:], status: status) }
+        return try Reply(["runners": [["id": 21, "name": "Mac", "status": "offline", "busy": false]]])
+    }
+    defer { fixture.close() }
+    let paths = AppPaths(root: .temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    defer { try? FileManager.default.removeItem(at: paths.root) }
+    let runner = try Runner(repository: "fixture/repo", name: "Mac", label: "test", githubID: 21)
+    let other = try Runner(repository: "fixture/other", name: "Other", label: "other")
+    try paths.save([runner, other])
+    let directory = paths.directory(runner.id)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let workspace = directory.appendingPathComponent("keep.txt")
+    try Data("checkout".utf8).write(to: workspace)
+    let store = RunnerStore(github: fixture.github(), paths: paths, restore: { false })
+    await store.load()
+    #expect(await store.shutdown())
+
+    store.operations.insert(runner.id)
+    await store.remove(runner)
+    #expect(store.runners == [runner, other])
+    store.operations.remove(runner.id)
+    await store.remove(runner)
+
+    let expected = status == 204 ? [other] : [runner, other]
+    #expect(store.runners == expected)
+    #expect(try paths.load() == expected)
+    #expect(store.selectedID == (status == 204 ? other.id : runner.id))
+    #expect((store.error != nil) == (status != 204))
+    #expect(try String(contentsOf: workspace, encoding: .utf8) == "checkout")
+    if status == 204 {
+        let requests = fixture.requests.count
+        await store.remove(runner)
+        #expect(fixture.requests.count == requests)
+    }
+}
+
 private func job(_ id: Int, runner: Int = 21) -> [String: Any] {
     ["id": id, "name": "Build", "status": "completed", "conclusion": "success", "runner_id": runner,
      "html_url": "https://github.com/stub/repo/actions/jobs/\(id)"]

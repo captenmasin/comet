@@ -6,6 +6,8 @@ import RunnerCore
 struct MainWindow: View {
     @Bindable var store: RunnerStore
     @State private var section = "Activity"
+    @State private var pendingRemoval: Runner?
+    @State private var pendingStop: Runner?
     var body: some View {
         NavigationSplitView {
             VStack(spacing: 0) {
@@ -27,8 +29,47 @@ struct MainWindow: View {
                                 Text(store.state(runner).rawValue).font(.caption)
                             }
                         }.padding(.vertical, 2).tag(runner.id)
+                            .contextMenu {
+                                Button(store.isEnabled(runner) ? "Stop Runner…" : "Start Runner") {
+                                    if store.isEnabled(runner) { pendingStop = runner }
+                                    else { Task { await store.start(runner) } }
+                                }.disabled(store.operations.contains(runner.id))
+                                Button("Configuration") {
+                                    store.selectedID = runner.id
+                                    section = "Configuration"
+                                }
+                                Button("Show Workspace in Finder") { store.showWorkspace(for: runner) }
+                                Divider()
+                                Button("Remove Runner…", role: .destructive) { pendingRemoval = runner }
+                                    .disabled(store.isEnabled(runner) || store.operations.contains(runner.id))
+                            }
                     }
                 }.listStyle(.sidebar)
+                    .onDeleteCommand {
+                        guard let runner = store.selected, !store.isEnabled(runner),
+                              !store.operations.contains(runner.id) else { return }
+                        pendingRemoval = runner
+                    }
+                    .alert("Remove \(pendingRemoval?.name ?? "runner")?", isPresented: Binding(
+                        get: { pendingRemoval != nil }, set: { if !$0 { pendingRemoval = nil } }), presenting: pendingRemoval) { runner in
+                        Button("Cancel", role: .cancel) { pendingRemoval = nil }
+                        Button("Remove Runner", role: .destructive) {
+                            Task { await store.remove(runner) }
+                            pendingRemoval = nil
+                        }
+                    } message: { _ in
+                        Text("This deregisters the runner on GitHub. Its local workspace will be kept. If deregistration fails, the runner stays in this app.")
+                    }
+                    .alert("Stop \(pendingStop?.name ?? "runner")?", isPresented: Binding(
+                        get: { pendingStop != nil }, set: { if !$0 { pendingStop = nil } }), presenting: pendingStop) { runner in
+                        Button("Cancel", role: .cancel) { pendingStop = nil }
+                        Button("Stop Runner", role: .destructive) {
+                            Task { await store.stop(runner) }
+                            pendingStop = nil
+                        }
+                    } message: { _ in
+                        Text("Stopping this runner may interrupt an active build. GitHub status can be delayed.")
+                    }
                 Divider()
                 HStack {
                     Image(systemName: "person.crop.circle")
@@ -88,6 +129,17 @@ struct MainWindow: View {
                 }
             }
         }
+        #if DEBUG
+        .toolbar(removing: .title)
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                HStack(spacing: 8) {
+                    Text("Comet").font(.headline)
+                    DevelopmentBadge()
+                }
+            }
+        }
+        #endif
         .frame(minWidth: 800, minHeight: 570).tint(runnerAccent)
         .sheet(isPresented: $store.showSetup) { SetupView(store: store) }
         .alert("Comet needs your attention", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {

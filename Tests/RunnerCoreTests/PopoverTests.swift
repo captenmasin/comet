@@ -9,6 +9,15 @@ struct PopoverTests {
     private let suite = "Comet.PopoverTests.\(UUID().uuidString)"
     private var defaults: UserDefaults { UserDefaults(suiteName: suite)! }
 
+    @Test func reopeningRestoresARemovedMenuBarItem() {
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let delegate = AppDelegate(store: RunnerStore(), defaults: defaults)
+        #expect(delegate.menuBarInserted)
+        delegate.menuBarInserted = false
+        #expect(delegate.applicationShouldHandleReopen(NSApplication.shared, hasVisibleWindows: false))
+        #expect(delegate.menuBarInserted)
+    }
+
     @Test func dockPresenceFollowsAppWindows() {
         defer { defaults.removePersistentDomain(forName: suite) }
         let app = NSApplication.shared

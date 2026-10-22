@@ -1,6 +1,18 @@
 import Foundation
 import Security
 
+final class GitHubRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? {
+        guard let url = request.url, url.scheme == "https", url.host == "api.github.com",
+              url.port == nil || url.port == 443, url.user == nil, url.password == nil else { return nil }
+        var request = request
+        // URLSession drops Authorization when GitHub redirects a renamed repository.
+        request.setValue(task.originalRequest?.value(forHTTPHeaderField: "Authorization"), forHTTPHeaderField: "Authorization")
+        return request
+    }
+}
+
 public enum Keychain {
     private static func query(service: String, account: String) -> [String: Any] { [
         kSecClass as String: kSecClassGenericPassword,
@@ -74,7 +86,7 @@ public actor GitHub {
         request.setValue("2026-03-10", forHTTPHeaderField: "X-GitHub-Api-Version")
         request.setValue("Comet/0.1", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 30
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: GitHubRedirectDelegate())
         try Self.validate(response)
         return try JSONDecoder().decode(User.self, from: data).login
     }
@@ -94,7 +106,7 @@ public actor GitHub {
             guard let token else { throw RunnerError.message("Connect a GitHub personal access token first.") }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let (data, response) = try await session.data(for: request)
+        let (data, response) = try await session.data(for: request, delegate: GitHubRedirectDelegate())
         try Task.checkCancellation()
         if let http = response as? HTTPURLResponse {
             let remaining = http.value(forHTTPHeaderField: "x-ratelimit-remaining")

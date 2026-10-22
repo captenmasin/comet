@@ -246,7 +246,7 @@ public struct DedicatedUser: Sendable {
             guard !registered else { throw RunnerError.message("The Comet account or its permissions changed. Restore dedicated-user setup before managing this registered runner.") }
             return VMSnapshot(running: false, registrationID: nil, log: "")
         }
-        guard let executable = Bundle.main.executableURL else { throw RunnerError.message("Could not locate Comet’s runner helper.") }
+        guard let executable = RunnerProcess.executableURL else { throw RunnerError.message("Could not locate Comet’s runner helper.") }
         let root = VMConnection.quote(directory)
         let command = helperSelection + "if [ -x \"$helper\" ]; then exec \"$helper\" --runner-snapshot \(root); elif [ -e \(root)/.runner ] || [ -e \(root)/.host.lock ]; then echo 'The dedicated runner helper is missing. Its files have been preserved.' >&2; exit 1; else printf '%s' '{\"running\":false,\"log\":\"\"}'; fi"
         let output: String

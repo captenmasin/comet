@@ -44,20 +44,26 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
             MainActor.assumeIsolated { self?.automaticallyDownloadsUpdates = value }
         }.store(in: &observations)
         controller.startUpdater()
+        AppLog.record("updater started")
         #endif
     }
 
-    func checkForUpdates() { controller?.checkForUpdates(nil) }
+    func checkForUpdates() {
+        AppLog.record("manual update check")
+        controller?.checkForUpdates(nil)
+    }
 
     func postponeInstallation(_ install: @escaping () -> Void) -> Bool {
         guard store?.canInstallUpdate == false else { return false }
         waitingForRunners = true
+        AppLog.record("update installation postponed for runners")
         pendingInstallation?.cancel()
         pendingInstallation = Task { [weak self] in
             while !Task.isCancelled, let self, self.store != nil {
                 if self.store?.canInstallUpdate == true {
                     self.waitingForRunners = false
                     self.pendingInstallation = nil
+                    AppLog.record("installing postponed update")
                     install()
                     return
                 }
@@ -87,10 +93,20 @@ final class AppUpdater: NSObject, SPUUpdaterDelegate {
     func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                  immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
         // Keep background updates queued for normal Quit, which already stops runners safely.
-        true
+        AppLog.record("update queued for installation on quit version=\(item.versionString)")
+        return true
     }
 
-    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) { cancelPendingInstallation() }
+    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+        AppLog.record("updater will install version=\(item.versionString)")
+    }
+
+    func updaterWillRelaunchApplication(_ updater: SPUUpdater) { AppLog.record("updater will relaunch app") }
+
+    func updater(_ updater: SPUUpdater, didAbortWithError error: any Error) {
+        AppLog.record("update aborted: \(error.localizedDescription)", error: true)
+        cancelPendingInstallation()
+    }
 }
 
 struct CheckForUpdatesButton: View {

@@ -111,6 +111,7 @@ private final class IdleClock: Sendable {
     var snapshots: [UUID: VMSnapshot] = [:]
     var snapshotFails = false
     var prepareFails = false
+    var stopFails = false
     var prepared: [UUID] = []
     var launched: [UUID] = []
     var stopped: [UUID] = []
@@ -130,6 +131,7 @@ private final class IdleClock: Sendable {
             self.snapshots[$0] = VMSnapshot(running: true, registrationID: 21, log: "")
         }, stop: {
             self.stopped.append($0)
+            if self.stopFails { throw RunnerError.message("macOS has not shut down") }
             self.running.remove($0)
         })
     }
@@ -411,6 +413,28 @@ func uncertainOrBusyVMNeverPowersOff(snapshotFails: Bool) async throws {
     await harness.store.refreshVMs()
     #expect(harness.vm.prepared.isEmpty)
     #expect(harness.vm.launched.isEmpty)
+}
+
+@Test @MainActor func failedQuitNamesTheRunnerAndCanBeRetried() async throws {
+    let runner = try idleRunner()
+    let other = try idleRunner(label: "other", githubID: 22)
+    let harness = try IdleHarness([runner, other])
+    defer { harness.close() }
+    harness.vm.running.insert(runner.id)
+    harness.vm.stopFails = true
+    harness.store.selectedID = other.id
+
+    #expect(await !harness.store.shutdown())
+    #expect(harness.store.selectedID == runner.id)
+    #expect(harness.store.error?.contains("\(runner.name) (\(runner.repository))") == true)
+    #expect(harness.store.error?.contains("macOS has not shut down") == true)
+    #expect(harness.store.isEnabled(runner))
+    #expect(harness.store.runners.first?.watchForJobs == true)
+
+    harness.vm.stopFails = false
+    #expect(await harness.store.shutdown())
+    #expect(!harness.vm.running.contains(runner.id))
+    #expect(harness.vm.stopped == [runner.id, runner.id])
 }
 
 @Test @MainActor func anUnexpectedVMStopReleasesItsQueuedJobClaim() async throws {

@@ -11,7 +11,9 @@ final class MCPServer {
     private(set) var isEnabled: Bool
     private(set) var isChanging = false
     private(set) var endpoint: String?
-    private(set) var error: String?
+    private(set) var error: String? {
+        didSet { if let error, error != oldValue { AppLog.record(error, error: true) } }
+    }
     private weak var store: RunnerStore?
     private let defaults: UserDefaults
     private let port: Int

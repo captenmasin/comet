@@ -29,15 +29,35 @@ final class RunnerStore {
             }
         }
     }
-    var states: [UUID: RunnerState] = [:]
-    var issues: [UUID: String] = [:]
+    var states: [UUID: RunnerState] = [:] {
+        didSet {
+            for (id, state) in states where oldValue[id] != state {
+                AppLog.record("runner=\(id) state=\(state.rawValue)")
+            }
+        }
+    }
+    var issues: [UUID: String] = [:] {
+        didSet {
+            for (id, issue) in issues where oldValue[id] != issue {
+                AppLog.record("runner=\(id) issue=\(issue)", error: true)
+            }
+        }
+    }
     var logs: [UUID: String] = [:]
     var activity: [UUID: [RunnerActivity]] = [:]
-    var activityIssue: [UUID: String] = [:]
+    var activityIssue: [UUID: String] = [:] {
+        didSet {
+            for (id, issue) in activityIssue where oldValue[id] != issue {
+                AppLog.record("runner=\(id) activity issue=\(issue)", error: true)
+            }
+        }
+    }
     var operations: Set<UUID> = []
     var signedIn = false
     var account = "Not signed in"
-    var error: String?
+    var error: String? {
+        didSet { if let error, error != oldValue { AppLog.record("app error: \(error)", error: true) } }
+    }
     var showSetup = false
     private var hosts: [UUID: Process] = [:]
     private var dedicatedRunning: [UUID: Bool] = [:]
@@ -82,7 +102,7 @@ final class RunnerStore {
             isRunning: { machines.isRunning($0) },
             prepare: { runner, progress in
                 let connection = try await machines.start(runner, paths: paths, progress: progress)
-                guard let executable = Bundle.main.executableURL else { throw RunnerError.message("Could not locate Comet’s guest helper.") }
+                guard let executable = RunnerProcess.executableURL else { throw RunnerError.message("Could not locate Comet’s guest helper.") }
                 let id = try await connection.install(runner, github: github, executable: executable, progress: progress)
                 _ = try await connection.command("rm -f \(VMConnection.quote(VMConnection.guestDirectory + "/.host-exit"))")
                 return id
@@ -161,6 +181,7 @@ final class RunnerStore {
     }
 
     func load() async {
+        AppLog.record("loading configuration and credentials")
         do {
             try paths.prepare()
             runners = try paths.load()
@@ -180,6 +201,7 @@ final class RunnerStore {
             }
         }
         startPolling()
+        AppLog.record("load completed runners=\(runners.count) signedIn=\(signedIn)")
     }
 
     func startPolling() {
@@ -281,6 +303,7 @@ final class RunnerStore {
             }
             guard hasHost(runner) else {
                 if let host = hosts.removeValue(forKey: runner.id), !host.isRunning, host.terminationStatus != 0 {
+                    AppLog.record("runner=\(runner.id) helper pid=\(host.processIdentifier) exited status=\(host.terminationStatus) reason=\(host.terminationReason.rawValue)", error: true)
                     issues[runner.id] = "The local runner exited unexpectedly. Check Logs, then start it again."
                     states[runner.id] = .attention
                 } else if state(runner) != .attention { states[runner.id] = .stopped }
@@ -573,7 +596,7 @@ final class RunnerStore {
                     issues[runner.id] = "The dedicated runner is already running. Retry Connection."
                     return
                 }
-                guard let executable = Bundle.main.executableURL else { throw RunnerError.message("Could not locate Comet’s runner helper.") }
+                guard let executable = RunnerProcess.executableURL else { throw RunnerError.message("Could not locate Comet’s runner helper.") }
                 id = try await DedicatedUser(id: runner.id).install(runner, github: github, executable: executable, progress: progress)
             } else {
                 id = try await RunnerInstaller.install(runner, directory: paths.directory(runner.id), github: github, progress: progress)
@@ -662,7 +685,8 @@ final class RunnerStore {
     }
 
     func remove(_ runner: Runner) async {
-        guard !operations.contains(runner.id), configurationLoaded else { return }
+        guard let runner = runners.first(where: { $0.id == runner.id }),
+              !operations.contains(runner.id), configurationLoaded else { return }
         operations.insert(runner.id)
         defer { operations.remove(runner.id) }
         do {
@@ -697,7 +721,8 @@ final class RunnerStore {
         shuttingDown = true
         await virtualMachines.finishCancellingDownload()
         for runner in runners where hasHost(runner) { await stop(runner, preservingWatch: true) }
-        let stopped = !runners.contains(where: { hasHost($0) })
+        let remaining = runners.filter { hasHost($0) }
+        let stopped = remaining.isEmpty
         if stopped {
             await mcp.stop()
             poll?.cancel()
@@ -705,7 +730,13 @@ final class RunnerStore {
             activityRefresh?.task.cancel()
             _ = await activityRefresh?.task.value
         }
-        if !stopped { shuttingDown = false }
+        if !stopped {
+            shuttingDown = false
+            selectedID = remaining.first?.id
+            error = "Some runners could not be stopped.\n\n" + remaining.map {
+                "\($0.name) (\($0.repository)): \(issues[$0.id] ?? "The runner is still running or its status could not be verified.")"
+            }.joined(separator: "\n\n")
+        }
         return stopped
     }
 }

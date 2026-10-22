@@ -108,6 +108,14 @@ public enum RunnerProcess {
         return HostRecord(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
     }
 
+    public static var executableURL: URL? { executableURL(getpid()) }
+
+    private static func executableURL(_ pid: Int32) -> URL? {
+        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
+        return URL(fileURLWithPath: String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self))
+    }
+
     public static func locked(_ directory: URL) -> Bool {
         let fd = open(directory.appendingPathComponent(".host.lock").path, O_CREAT | O_RDWR, 0o600)
         guard fd >= 0 else { return errno != ENOENT }
@@ -121,10 +129,9 @@ public enum RunnerProcess {
               let data = try? Data(contentsOf: directory.appendingPathComponent(".host.json")),
               let saved = try? JSONDecoder().decode(HostRecord.self, from: data),
               let current = identity(saved.pid), current.seconds == saved.seconds, current.microseconds == saved.microseconds else { return nil }
-        var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
-        guard proc_pidpath(saved.pid, &buffer, UInt32(buffer.count)) > 0,
-              let executable = Bundle.main.executableURL,
-              String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self) == executable.path,
+        // Bundle caches the launch path even if the app's parent directory is renamed.
+        guard let executable = executableURL,
+              executableURL(saved.pid) == executable,
               getpgid(saved.pid) == saved.pid,
               let invocation = arguments(saved.pid)?.suffix(2),
               invocation.last == directory.path,
@@ -155,8 +162,9 @@ public enum RunnerProcess {
 
     public static func launch(_ directory: URL) throws -> Process {
         guard !locked(directory) else { throw RunnerError.message("A runner process already owns this folder. Retry connection instead of starting another.") }
+        guard let executable = executableURL else { throw RunnerError.message("Could not locate Comet’s runner helper.") }
         let process = Process()
-        process.executableURL = Bundle.main.executableURL
+        process.executableURL = executable
         process.arguments = ["--runner-host", directory.path]
         process.environment = environment()
         process.standardOutput = FileHandle.nullDevice
