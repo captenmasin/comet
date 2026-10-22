@@ -3,10 +3,30 @@ import SwiftUI
 import Testing
 @testable import Runner
 
+#if DEBUG
+@Test func runningJobSimulationRequiresItsDevelopmentFlag() {
+    #expect(!Entry.simulatesRunningJob(arguments: ["Comet"]))
+    #expect(Entry.simulatesRunningJob(arguments: ["Comet", "--simulate-running-job"]))
+}
+#endif
+
+@Test(arguments: [false, true], [false, true]) @MainActor
+func unchangedStatusImagesKeepTheirIdentity(dark: Bool, running: Bool) {
+    for failure in [false, true] {
+        for success in [false, true] {
+            let first = MenuBarStatusIcon.image(isRunningJob: running,
+                hasFailure: failure, hasSuccess: success, dark: dark)
+            let next = MenuBarStatusIcon.image(isRunningJob: running,
+                hasFailure: failure, hasSuccess: success, dark: dark)
+            #expect(first === next)
+        }
+    }
+}
+
 @Test(arguments: [false, true], [false, true]) @MainActor
 func menuBarSuccessDotIsGreenAndFailureTakesPriority(dark: Bool, running: Bool) throws {
     for failure in [false, true] {
-        let image = MenuBarStatusIcon.image(isRunningJob: running, angle: 0,
+        let image = MenuBarStatusIcon.image(isRunningJob: running,
             hasFailure: failure, hasSuccess: true, dark: dark)
         #expect(image.size == NSSize(width: 18, height: 18) && !image.isTemplate)
         let data = try #require(image.tiffRepresentation)
@@ -20,7 +40,7 @@ func menuBarSuccessDotIsGreenAndFailureTakesPriority(dark: Bool, running: Bool) 
 
 @Test(arguments: [false, true], [false, true]) @MainActor
 func menuBarFailureDotStaysRedWithoutChangingSize(dark: Bool, running: Bool) throws {
-    let image = MenuBarStatusIcon.image(isRunningJob: running, angle: 0, hasFailure: true, dark: dark)
+    let image = MenuBarStatusIcon.image(isRunningJob: running, hasFailure: true, dark: dark)
     #expect(image.size == NSSize(width: 18, height: 18))
     #expect(!image.isTemplate)
     let data = try #require(image.tiffRepresentation)
@@ -38,8 +58,21 @@ func menuBarFailureDotStaysRedWithoutChangingSize(dark: Bool, running: Bool) thr
 }
 
 @Test @MainActor
+func staticRunningHeadIsACompleteOutline() throws {
+    let image = MenuBarStatusIcon.image(isRunningJob: true)
+    let data = try #require(image.tiffRepresentation)
+    let bitmap = try #require(NSBitmapImageRep(data: data))
+    for (x, y) in [(12.26, 3.25), (14.71, 5.70), (12.26, 8.15), (9.81, 5.70)] {
+        let color = try #require(bitmap.colorAt(x: Int(x * Double(bitmap.pixelsWide) / 18),
+                                               y: Int(y * Double(bitmap.pixelsHigh) / 18)))
+        #expect(color.alphaComponent > 0.7)
+    }
+    #expect(bitmap.colorAt(x: bitmap.pixelsWide * 12 / 18, y: bitmap.pixelsHigh * 6 / 18)?.alphaComponent == 0)
+}
+
+@Test @MainActor
 func menuBarActivityFramesKeepTheStreaksAndRotateTheHead() throws {
-    let idle = MenuBarStatusIcon.image(isRunningJob: false, angle: 0)
+    let idle = MenuBarStatusIcon.image(isRunningJob: false)
     let first = MenuBarStatusIcon.image(isRunningJob: true, angle: 0)
     let next = MenuBarStatusIcon.image(isRunningJob: true, angle: 20)
     #expect(idle.size == NSSize(width: 18, height: 18))
@@ -100,7 +133,7 @@ func menuBarCometShowsJobActivityInBothAppearances(dark: Bool) async throws {
     try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
     try #require(bitmap.representation(using: .png, properties: [:]))
         .write(to: output.appendingPathComponent("idle-\(dark).png"))
-    view.rootView = MenuBarStatusIcon(isRunningJob: true).foregroundStyle(.primary)
+    view.rootView = MenuBarStatusIcon(isRunningJob: true, animates: false).foregroundStyle(.primary)
         .padding(4)
         .background(dark ? Color.black : Color.white)
         .environment(\.colorScheme, dark ? .dark : .light)
@@ -111,6 +144,10 @@ func menuBarCometShowsJobActivityInBothAppearances(dark: Bool) async throws {
     view.layoutSubtreeIfNeeded()
     let busy = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
     view.cacheDisplay(in: view.bounds, to: busy)
-    try #require(busy.representation(using: .png, properties: [:]))
-        .write(to: output.appendingPathComponent("busy-\(dark).png"))
+    let busyData = try #require(busy.representation(using: .png, properties: [:]))
+    try busyData.write(to: output.appendingPathComponent("busy-\(dark).png"))
+    try await Task.sleep(for: .milliseconds(120))
+    view.layoutSubtreeIfNeeded()
+    view.cacheDisplay(in: view.bounds, to: busy)
+    #expect(busy.representation(using: .png, properties: [:]) == busyData)
 }

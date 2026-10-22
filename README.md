@@ -24,6 +24,8 @@ Requires Xcode 27 or later to build and macOS 15 or later to run. Automatic macO
 
 This builds an ad-hoc signed app at `.build/Comet.app` and opens it. You can also open `Package.swift` in Xcode. SwiftPM resolves Sparkle 2.10.0 using the checked-in `Package.resolved`; there is no GitHub CLI requirement for app users.
 
+To preview the running-job icon in a stopped development app, launch with `open .build/Comet.app --args --simulate-running-job`. This debug-only flag changes the icon in the menu bar and popover without changing runner state or starting a workflow.
+
 The packaging script passes the selected macOS SDK explicitly to the linker and checks the executable's SDK metadata. Quit Comet before packaging; the script refuses to overwrite a running app, which can disrupt macOS local network permissions. Use it for appearance checks: a plain SwiftPM build on the current toolchain can record SDK 15 despite compiling against a newer SDK. The macOS 15 deployment target stays separate from the build SDK. Native sidebar, popover, sheets and controls follow the system appearance; the main Start/Stop button uses Liquid Glass on macOS 26+ and a bordered control on macOS 15. The compact layout uses an adaptive violet accent in light and dark appearances.
 
 The app keeps its original bundle identifier (`dev.runnerbar.app`), Keychain service (`dev.runnerbar.github`), and `RunnerBar` data directory so the rename preserves existing setup. Quit the old Runner app normally before switching to Comet: helper recovery deliberately checks the executable path, which changes with the app name. Do not run both versions together.
@@ -48,7 +50,7 @@ The app icon lives in `Artwork/Comet.icon`, editable with [Icon Composer](https:
 ./scripts/build-app.sh
 ```
 
-The existing monochrome template glyph is separate: `swift scripts/generate-icons.swift` regenerates its checked-in 18/36 pixel PNGs in the Swift package resource bundle, checking dimensions and transparency. The menu bar uses state-specific SF Symbols. Swift target names remain internal implementation details.
+The existing monochrome template glyph is separate: `swift scripts/generate-icons.swift` regenerates its checked-in 18/36 pixel PNGs in the Swift package resource bundle, checking dimensions and transparency. The menu bar uses static, cached status images to avoid repeated system menu bar snapshots; job activity animates inside the popover. Swift target names remain internal implementation details.
 
 The DMG uses the checked-in `Artwork/Installer/background.png` and `FinderLayout` metadata for a compact drag-to-install window. Packaging copies these assets without running Finder, so it works on the headless release runner. Run `swift scripts/generate-installer-background.swift` to redraw the Retina background. To change the window or icon positions, regenerate the layout with `python3 scripts/generate-installer-layout.py` in a temporary virtual environment containing `ds-store==1.3.3`. Keep the 660 × 360 point background, icon positions, volume name (`Comet`), and hidden `.background/background.png` path in sync. The layout uses a portable Carbon alias with no build machine paths or file IDs.
 

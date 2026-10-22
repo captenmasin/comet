@@ -6,6 +6,12 @@ import RunnerCore
 
 @main
 struct Entry {
+    #if DEBUG
+    static func simulatesRunningJob(arguments: [String] = CommandLine.arguments) -> Bool {
+        arguments.contains("--simulate-running-job")
+    }
+    #endif
+
     @MainActor static func main() async {
         if CommandLine.arguments.count == 3,
            ["--runner-host", "--runner-host-once"].contains(CommandLine.arguments[1]) {
@@ -65,7 +71,7 @@ struct RunnerApp: App {
         } label: {
             Label { Text("Comet: \(store.menuBarState.rawValue)") } icon: {
                 MenuBarStatusIcon(isRunningJob: store.hasRunningJobs, hasFailure: store.hasFailures,
-                    successUntil: store.successExpiresAt)
+                    successUntil: store.successExpiresAt, animates: false)
             }
             .help("Comet: \(store.menuBarState.rawValue)")
         }
@@ -224,17 +230,28 @@ struct MenuBarStatusIcon: View {
     let isRunningJob: Bool
     var hasFailure = false
     var successUntil: Date? = nil
+    var animates = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @State private var angle = 0.0
     @State private var successExpired = false
     private static let comet = Bundle.module.image(forResource: "CometTemplate")!
     private static let streaks = Bundle.module.image(forResource: "CometStreaksTemplate")!
+    private struct ImageKey: Hashable {
+        let isRunningJob: Bool
+        let hasFailure: Bool
+        let hasSuccess: Bool
+        let dark: Bool
+    }
+    private static var stillImages: [ImageKey: NSImage] = [:]
 
     var body: some View {
+        #if DEBUG
+        let isRunningJob = self.isRunningJob || Entry.simulatesRunningJob()
+        #endif
         let hasSuccess = !successExpired && (successUntil ?? .distantPast) > Date()
         Group {
-            if isRunningJob && !reduceMotion {
+            if animates && isRunningJob && !reduceMotion {
                 Image(nsImage: Self.image(isRunningJob: true, angle: angle,
                     hasFailure: hasFailure, hasSuccess: hasSuccess, dark: colorScheme == .dark))
                     .renderingMode(hasFailure || hasSuccess ? .original : .template)
@@ -242,7 +259,7 @@ struct MenuBarStatusIcon: View {
                         angle = date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) * 360
                     }
             } else {
-                Image(nsImage: Self.image(isRunningJob: isRunningJob, angle: 0,
+                Image(nsImage: Self.image(isRunningJob: isRunningJob,
                     hasFailure: hasFailure, hasSuccess: hasSuccess, dark: colorScheme == .dark))
                     .renderingMode(hasFailure || hasSuccess ? .original : .template)
             }
@@ -258,11 +275,13 @@ struct MenuBarStatusIcon: View {
         }
     }
 
-    // MenuBarExtra extracts one image, so animate the head inside the template.
-    static func image(isRunningJob: Bool, angle: Double, hasFailure: Bool = false,
+    // Reuse status images: replacing them during appearance snapshots can feed back into MenuBarExtra.
+    static func image(isRunningJob: Bool, angle: Double? = nil, hasFailure: Bool = false,
                       hasSuccess: Bool = false, dark: Bool = false) -> NSImage {
         let hasBadge = hasFailure || hasSuccess
         guard isRunningJob || hasBadge else { return comet }
+        let key = ImageKey(isRunningJob: isRunningJob, hasFailure: hasFailure, hasSuccess: hasSuccess, dark: dark)
+        if angle == nil, let image = stillImages[key] { return image }
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { _ in
             let bounds = NSRect(x: 0, y: 0, width: 18, height: 18)
             (isRunningJob ? streaks : comet).draw(in: bounds)
@@ -273,8 +292,12 @@ struct MenuBarStatusIcon: View {
                 context.setStrokeColor(NSColor.black.cgColor)
                 context.setLineWidth(1.65)
                 context.setLineCap(.round)
-                context.addArc(center: center, radius: 2.45,
-                    startAngle: (90 - angle) * .pi / 180, endAngle: (190 - angle) * .pi / 180, clockwise: false)
+                if let angle {
+                    context.addArc(center: center, radius: 2.45,
+                        startAngle: (90 - angle) * .pi / 180, endAngle: (190 - angle) * .pi / 180, clockwise: false)
+                } else {
+                    context.addEllipse(in: NSRect(x: center.x - 2.45, y: center.y - 2.45, width: 4.9, height: 4.9))
+                }
                 context.strokePath()
             }
             if hasBadge {
@@ -287,6 +310,7 @@ struct MenuBarStatusIcon: View {
             return true
         }
         image.isTemplate = !hasBadge
+        if angle == nil { stillImages[key] = image }
         return image
     }
 }
