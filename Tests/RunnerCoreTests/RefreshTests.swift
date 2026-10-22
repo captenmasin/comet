@@ -465,5 +465,5 @@ private final class PollSleeper: Sendable {
     _ = await quitting.value
     #expect(!store.refreshingActivity)
     #expect(store.activityIssue.isEmpty)
-    #expect(fixture.pending == 0)
+    try await waitFor { fixture.pending == 0 }
 }
