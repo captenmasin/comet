@@ -39,7 +39,7 @@ final class RunnerStore {
     var issues: [UUID: String] = [:] {
         didSet {
             for (id, issue) in issues where oldValue[id] != issue {
-                AppLog.record("runner=\(id) issue=\(issue)", error: true)
+                AppLog.record("runner=\(id) issue=\(issue)", error: states[id] == .attention || !operations.contains(id))
             }
         }
     }
@@ -125,7 +125,8 @@ final class RunnerStore {
     }
     var hasFailures: Bool {
         error != nil || runners.contains { runner in
-            state(runner) == .attention || issues[runner.id] != nil || activityIssue[runner.id] != nil
+            state(runner) == .attention || (issues[runner.id] != nil && !operations.contains(runner.id))
+                || activityIssue[runner.id] != nil
                 || ["failure", "timed_out", "startup_failure"].contains(
                     activity[runner.id]?.first { $0.job.status == "completed" }?.job.conclusion ?? "")
         }

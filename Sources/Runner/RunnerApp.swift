@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import Sparkle
 import SwiftUI
 import RunnerCore
 
@@ -137,19 +138,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func updateDockPresence(_ notification: Notification) {
-        guard let window = notification.object as? NSWindow, !(window is NSPanel), window.canBecomeMain else { return }
+        guard let window = notification.object as? NSWindow, isAppWindow(window) else { return }
         if notification.name == NSWindow.didBecomeMainNotification {
             showMainWindowOnLaunch = false
             defaults.set(true, forKey: "hasShownMainWindow")
         }
         let hasOpenWindow = notification.name == NSWindow.didBecomeMainNotification
             || NSApp.windows.contains {
-                $0 !== window && !($0 is NSPanel) && $0.canBecomeMain && ($0.isVisible || $0.isMiniaturized)
+                $0 !== window && isAppWindow($0) && ($0.isVisible || $0.isMiniaturized)
             }
         let policy: NSApplication.ActivationPolicy = hasOpenWindow ? .regular : .accessory
         guard NSApp.activationPolicy() != policy else { return }
         let changed = NSApp.setActivationPolicy(policy)
         AppLog.record("activation policy=\(policy.rawValue) succeeded=\(changed) window event=\(notification.name.rawValue)", error: !changed)
+    }
+
+    private func isAppWindow(_ window: NSWindow) -> Bool {
+        guard !(window is NSPanel), window.canBecomeMain else { return false }
+        // Sparkle swaps temporary windows; Dock policy changes between them disrupt other windows.
+        guard let controller = window.windowController else { return true }
+        return Bundle(for: type(of: controller)) != Bundle(for: SPUUpdater.self)
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

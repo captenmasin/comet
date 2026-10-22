@@ -104,6 +104,31 @@ struct AppearanceTests {
         #expect(!store.hasFailures)
     }
 
+    @Test(arguments: [RunnerState.starting, .stopped, .reconnecting])
+    func setupProgressDoesNotShowAFailure(state: RunnerState) throws {
+        let store = RunnerStore()
+        let runner = try RunnerCore.Runner(repository: "fixture/repo", name: "Mac", label: "fixture")
+        store.runners = [runner]
+        store.states[runner.id] = state
+        store.operations.insert(runner.id)
+        store.issues[runner.id] = "Preparing the VM workspace…"
+        #expect(!store.hasFailures)
+        #expect(store.menuBarState == state)
+        store.states[runner.id] = .attention
+        #expect(store.hasFailures)
+        store.states[runner.id] = state
+        store.activityIssue[runner.id] = "GitHub unavailable"
+        #expect(store.hasFailures)
+        store.activityIssue[runner.id] = nil
+        store.error = "Setup failed"
+        #expect(store.hasFailures)
+        store.error = nil
+        store.operations.remove(runner.id)
+        #expect(store.hasFailures)
+        store.issues[runner.id] = nil
+        #expect(!store.hasFailures)
+    }
+
     @Test(arguments: ["success", "failure", "cancelled", "skipped"], [0.0, 119, 120, 121, -1])
     func menuBarSuccessUsesTheJobCompletionTime(conclusion: String, age: TimeInterval) throws {
         let now = Date(timeIntervalSince1970: 1_792_670_400)

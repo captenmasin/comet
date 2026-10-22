@@ -1,4 +1,5 @@
 import AppKit
+import Sparkle
 import SwiftUI
 import Testing
 @testable import Runner
@@ -18,7 +19,7 @@ struct PopoverTests {
         #expect(delegate.menuBarInserted)
     }
 
-    @Test func dockPresenceFollowsAppWindows() {
+    @Test func dockPresenceFollowsAppWindows() throws {
         defer { defaults.removePersistentDomain(forName: suite) }
         let app = NSApplication.shared
         let previousPolicy = app.activationPolicy()
@@ -39,6 +40,22 @@ struct PopoverTests {
         }
 
         app.setActivationPolicy(.accessory)
+        let driver = SPUStandardUserDriver(hostBundle: .main, delegate: nil)
+        defer { driver.dismissUpdateInstallation() }
+        driver.showUserInitiatedUpdateCheck(cancellation: {})
+        let checking = try #require(app.windows.first { $0.identifier?.rawValue == "SUStatus" && $0.isVisible })
+        checking.setFrameOrigin(window.frame.origin)
+        delegate.updateDockPresence(Notification(name: NSWindow.didBecomeMainNotification, object: checking))
+        #expect(app.activationPolicy() == .accessory)
+        delegate.updateDockPresence(Notification(name: NSWindow.willCloseNotification, object: checking))
+        #expect(app.activationPolicy() == .accessory)
+        #expect(delegate.showMainWindowOnLaunch)
+        driver.dismissUpdateInstallation()
+        driver.showDownloadInitiated(cancellation: {})
+        let downloading = try #require(app.windows.first { $0.identifier?.rawValue == "SUStatus" && $0.isVisible })
+        downloading.setFrameOrigin(window.frame.origin)
+        delegate.updateDockPresence(Notification(name: NSWindow.didBecomeMainNotification, object: downloading))
+        #expect(app.activationPolicy() == .accessory)
         delegate.updateDockPresence(Notification(name: NSWindow.didBecomeMainNotification, object: popover))
         #expect(app.activationPolicy() == .accessory)
         #expect(delegate.showMainWindowOnLaunch)
