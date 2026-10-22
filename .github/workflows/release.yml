@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: [self-hosted, macOS, runner-03859bea]
+    runs-on: [self-hosted, macOS, runner-9d160f62]
     timeout-minutes: 30
     env:
       BUILD_NUMBER: ${{ github.run_number }}
