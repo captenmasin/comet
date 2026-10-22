@@ -136,7 +136,7 @@ struct MainWindow: View {
                 HStack(spacing: 8) {
                     Text("Comet").font(.headline)
                     DevelopmentBadge()
-                }
+                }.padding(.horizontal, 12)
             }
         }
         #endif
