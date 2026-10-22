@@ -34,8 +34,6 @@ enum AppLog {
         String(RunnerProcess.sanitized(message).prefix(8192))
             .replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\r", with: "\\r")
     }
-
-    static func showInFinder() { NSWorkspace.shared.open(directory) }
 }
 
 // A separate lock file keeps append and rotation safe when two app copies are running.

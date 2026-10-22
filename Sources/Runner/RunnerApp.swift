@@ -58,8 +58,6 @@ struct RunnerApp: App {
         .commands {
             CommandGroup(after: .appInfo) {
                 CheckForUpdatesButton(updater: store.updates)
-                Button("Show App Logs…") { AppLog.showInFinder() }
-                Button("Show Menu Bar Icon") { delegate.menuBarInserted = true }
             }
             CommandGroup(replacing: .newItem) {
                 Button("Add Runner…") { store.showSetup = true }
@@ -475,7 +473,6 @@ struct RunnerPopover: View {
                 Menu {
                     Button("Settings…") { dismiss(); openSettings(); NSApplication.shared.activate(ignoringOtherApps: true) }
                     CheckForUpdatesButton(updater: store.updates)
-                    Button("Show App Logs…") { AppLog.showInFinder() }
                     Button("Manage GitHub Token…") { NSWorkspace.shared.open(URL(string: "https://github.com/settings/personal-access-tokens")!) }
                     Divider()
                     Button("Quit Comet") { NSApplication.shared.terminate(nil) }.keyboardShortcut("q")

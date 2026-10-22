@@ -32,7 +32,7 @@ The app keeps its original bundle identifier (`dev.runnerbar.app`), Keychain ser
 
 ## App diagnostics
 
-Comet records app lifecycle events, menu bar insertion/removal, Dock policy changes, runner state/error changes and update installation/relaunch events in `~/Library/Logs/Comet/app.log`. Choose **Show App Logs…** in the app menu or menu-bar overflow to open that folder. Logs include timestamps, process IDs and the launching app's version/path, plus a heartbeat every minute while the main thread is responsive. `app.previous.log` keeps the previous 1 MiB; both logs are local and private to your account. Known token patterns are redacted, but review logs before sharing because errors can include local paths and repository details.
+Comet records app lifecycle events, menu bar insertion/removal, Dock policy changes, runner state/error changes and update installation/relaunch events in `~/Library/Logs/Comet/app.log`. Logs include timestamps, process IDs and the launching app's version/path, plus a heartbeat every minute while the main thread is responsive. `app.previous.log` keeps the previous 1 MiB; both logs are local and private to your account. Known token patterns are redacted, but review logs before sharing because errors can include local paths and repository details.
 
 Events are also available in Console under subsystem `dev.runnerbar.app`, category `app`, with details marked private. Use the private log files for full diagnostics, or stream system events with:
 
@@ -40,7 +40,7 @@ Events are also available in Console under subsystem `dev.runnerbar.app`, catego
 /usr/bin/log stream --style compact --predicate 'subsystem == "dev.runnerbar.app" AND category == "app"'
 ```
 
-An orderly exit records `will terminate`; a process disappearing without it suggests an abrupt exit. macOS crash reports remain in `~/Library/Logs/DiagnosticReports/` (including `Retired/`); freeze/performance reports can also be in `/Library/Logs/DiagnosticReports/`. Match timestamps and process IDs: runner helpers also use the name Comet. Reopening Comet restores a removed menu bar item; **Show Menu Bar Icon** is also available in the app menu. An inserted item can still be hidden by macOS when the menu bar has insufficient room.
+An orderly exit records `will terminate`; a process disappearing without it suggests an abrupt exit. macOS crash reports remain in `~/Library/Logs/DiagnosticReports/` (including `Retired/`); freeze/performance reports can also be in `/Library/Logs/DiagnosticReports/`. Match timestamps and process IDs: runner helpers also use the name Comet. Reopening Comet restores a removed menu bar item. An inserted item can still be hidden by macOS when the menu bar has insufficient room.
 
 ## App artwork
 
